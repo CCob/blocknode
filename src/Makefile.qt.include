@@ -257,7 +257,9 @@ RES_ICONS = \
   qt/res/icons/unit_ublocknode.png \
   qt/res/icons/unit_tblocknode.png \
   qt/res/icons/unit_tmblocknode.png \
-  qt/res/icons/unit_tublocknode.png
+  qt/res/icons/unit_tublocknode.png \
+  qt/res/icons/hd_disabled.png \
+  qt/res/icons/hd_enabled.png 
 
 BITCOIN_QT_CPP = \
   qt/bantablemodel.cpp \

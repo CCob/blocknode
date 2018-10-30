@@ -88,6 +88,7 @@ private:
 #endif
     QPushButton* labelEncryptionIcon;
     QPushButton* labelConnectionsIcon;
+    QLabel* labelWalletHDStatusIcon;
     QLabel* labelBlocksIcon;
     QLabel* progressBarLabel;
     QProgressBar* progressBar;
@@ -237,6 +238,8 @@ private slots:
 
     /** Show open dialog */
     void openClicked();
+
+    void setHDStatus(int hdEnabled);
 
 #endif // ENABLE_WALLET
     /** Show configuration dialog */

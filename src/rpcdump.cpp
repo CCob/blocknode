@@ -64,6 +64,30 @@ std::string static EncodeDumpString(const std::string& str)
     return ret.str();
 }
 
+std::string EncodeExtKey(const CExtKey& key)
+{
+    std::vector<unsigned char> data = Params().Base58Prefix(CChainParams::EXT_SECRET_KEY);
+    size_t size = data.size();
+    data.resize(size + BIP32_EXTKEY_SIZE);
+    key.Encode(data.data() + size);
+    std::string ret = EncodeBase58Check(data);
+    //memory_cleanse(data.data(), data.size());
+    return ret;
+}
+
+CExtKey DecodeExtKey(const std::string& str)
+{
+    CExtKey key;
+    std::vector<unsigned char> data;
+    if (DecodeBase58Check(str.c_str(), data)) {
+        const std::vector<unsigned char>& prefix = Params().Base58Prefix(CChainParams::EXT_SECRET_KEY);
+        if (data.size() == BIP32_EXTKEY_SIZE + prefix.size() && std::equal(prefix.begin(), prefix.end(), data.begin())) {
+            key.Decode(data.data() + prefix.size());
+        }
+    }
+    return key;
+}
+
 std::string DecodeDumpString(const std::string& str)
 {
     std::stringstream ret;
@@ -381,6 +405,19 @@ UniValue dumpwallet(const UniValue& params, bool fHelp)
     file << strprintf("# * Best block at time of backup was %i (%s),\n", chainActive.Height(), chainActive.Tip()->GetBlockHash().ToString());
     file << strprintf("#   mined on %s\n", EncodeDumpTime(chainActive.Tip()->GetBlockTime()));
     file << "\n";
+
+    // add the base58check encoded extended master if the wallet uses HD
+    CKeyID seed_id = pwalletMain->GetHDChain().masterKeyID;
+    if (!seed_id.IsNull())
+    {
+        CKey seed;
+        if (pwalletMain->GetKey(seed_id, seed)) {
+            CExtKey masterKey;
+            masterKey.SetMaster(seed.begin(), seed.size());
+
+            file << "# extended private masterkey: " << EncodeExtKey(masterKey) << "\n\n";
+        }
+    }
     for (std::vector<std::pair<int64_t, CKeyID> >::const_iterator it = vKeyBirth.begin(); it != vKeyBirth.end(); it++) {
         const CKeyID& keyid = it->second;
         std::string strTime = EncodeDumpTime(it->first);

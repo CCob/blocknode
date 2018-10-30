@@ -546,7 +546,8 @@ am__qt_libbitcoinqt_a_SOURCES_DIST = qt/bantablemodel.cpp \
 	qt/res/icons/unit_ublocknode.png \
 	qt/res/icons/unit_tblocknode.png \
 	qt/res/icons/unit_tmblocknode.png \
-	qt/res/icons/unit_tublocknode.png qt/res/images/about.png \
+	qt/res/icons/unit_tublocknode.png qt/res/icons/hd_disabled.png \
+	qt/res/icons/hd_enabled.png qt/res/images/about.png \
 	qt/res/images/splash.png qt/res/images/splash_testnet.png \
 	qt/res/images/blocknode_logo_horizontal.png \
 	qt/res/images/downArrow_dark.png \
@@ -2312,7 +2313,9 @@ EXTRA_DIST = leveldb $(am__append_14)
 @ENABLE_QT_TRUE@  qt/res/icons/unit_ublocknode.png \
 @ENABLE_QT_TRUE@  qt/res/icons/unit_tblocknode.png \
 @ENABLE_QT_TRUE@  qt/res/icons/unit_tmblocknode.png \
-@ENABLE_QT_TRUE@  qt/res/icons/unit_tublocknode.png
+@ENABLE_QT_TRUE@  qt/res/icons/unit_tublocknode.png \
+@ENABLE_QT_TRUE@  qt/res/icons/hd_disabled.png \
+@ENABLE_QT_TRUE@  qt/res/icons/hd_enabled.png 
 
 @ENABLE_QT_TRUE@BITCOIN_QT_CPP = qt/bantablemodel.cpp \
 @ENABLE_QT_TRUE@	qt/bitcoinaddressvalidator.cpp \
