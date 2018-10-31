@@ -1587,6 +1587,12 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             }
 
             pwalletMain->SetBestChain(chainActive.GetLocator());
+        } else if (mapArgs.count("-usehd")) {
+            bool useHD = GetBoolArg("-usehd", DEFAULT_USE_HD_WALLET);
+            if (!pwalletMain->GetHDChain().masterKeyID.IsNull() && !useHD)
+                return InitError(strprintf(_("Error loading %s: You can't disable HD on a already existing HD wallet"), strWalletFile));
+            if (pwalletMain->GetHDChain().masterKeyID.IsNull() && useHD)
+                return InitError(strprintf(_("Error loading %s: You can't enable HD on a already existing non-HD wallet"), strWalletFile));
         }
 
         LogPrintf("%s", strErrors.str());
