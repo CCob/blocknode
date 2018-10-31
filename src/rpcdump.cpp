@@ -75,19 +75,6 @@ std::string EncodeExtKey(const CExtKey& key)
     return ret;
 }
 
-CExtKey DecodeExtKey(const std::string& str)
-{
-    CExtKey key;
-    std::vector<unsigned char> data;
-    if (DecodeBase58Check(str.c_str(), data)) {
-        const std::vector<unsigned char>& prefix = Params().Base58Prefix(CChainParams::EXT_SECRET_KEY);
-        if (data.size() == BIP32_EXTKEY_SIZE + prefix.size() && std::equal(prefix.begin(), prefix.end(), data.begin())) {
-            key.Decode(data.data() + prefix.size());
-        }
-    }
-    return key;
-}
-
 std::string DecodeDumpString(const std::string& str)
 {
     std::stringstream ret;
