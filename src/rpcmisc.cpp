@@ -328,6 +328,8 @@ UniValue validateaddress(const UniValue& params, bool fHelp)
             "  \"pubkey\" : \"publickeyhex\",    (string) The hex value of the raw public key\n"
             "  \"iscompressed\" : true|false,    (boolean) If the address is compressed\n"
             "  \"account\" : \"account\"         (string) The account associated with the address, \"\" is the default account\n"
+            "  \"hdkeypath\" : \"keypath\"       (string, optional) The HD keypath if the key is HD and available\n"
+            "  \"hdmasterkeyid\" : \"<hash160>\" (string, optional) The Hash160 of the HD master pubkey\n"
             "}\n"
             "\nExamples:\n" +
             HelpExampleCli("validateaddress", "\"1PSSGeFHDnKNxiEyFrD1wcEaHr9hrQDDWc\"") + HelpExampleRpc("validateaddress", "\"1PSSGeFHDnKNxiEyFrD1wcEaHr9hrQDDWc\""));
@@ -357,6 +359,12 @@ UniValue validateaddress(const UniValue& params, bool fHelp)
         }
         if (pwalletMain && pwalletMain->mapAddressBook.count(dest))
             ret.push_back(Pair("account", pwalletMain->mapAddressBook[dest].name));
+        CKeyID keyID;
+        if (pwalletMain && address.GetKeyID(keyID) && pwalletMain->mapKeyMetadata.count(keyID) && !pwalletMain->mapKeyMetadata[keyID].extkeyMetadata.IsNull())
+        {
+            ret.push_back(Pair("hdkeypath", pwalletMain->mapKeyMetadata[keyID].extkeyMetadata.GetKeyPath()));
+            ret.push_back(Pair("hdmasterkeyid", pwalletMain->mapKeyMetadata[keyID].extkeyMetadata.hdMasterKeyID.GetHex()));
+        }
 #endif
     }
     return ret;

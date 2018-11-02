@@ -103,7 +103,7 @@ public:
     int64_t StartMasternodePayments() const { return nStartMasternodePayments; }
     int64_t Budget_Fee_Confirmations() const { return nBudget_Fee_Confirmations; }
     CBaseChainParams::Network NetworkID() const { return networkID; }
-
+    inline int ExtCoinType() const { return nExtCoinType; }
     /** Zerocoin **/
     std::string Zerocoin_Modulus() const { return zerocoinModulus; }
     libzerocoin::ZerocoinParams* Zerocoin_Params() const;
@@ -147,6 +147,7 @@ protected:
     int nMasternodeCountDrift;
     int nMaturity;
     int nModifierUpdateBlock;
+    int nExtCoinType;
     
     CAmount nMaxMoneyOut;
     CAmount nSwiftTxMinFee;

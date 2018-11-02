@@ -192,7 +192,8 @@ private:
     /* the hd chain data model (external chain counters) */
     CHDChain hdChain;
 
-public:
+
+    public:
     bool MintableCoins();
     bool SelectStakeCoins(std::set<std::pair<const CWalletTx*, unsigned int> >& setCoins, CAmount nTargetAmount) const;
     bool SelectCoinsDark(CAmount nValueMin, CAmount nValueMax, std::vector<CTxIn>& setCoinsRet, CAmount& nValueRet, int nObfuscationRoundsMin, int nObfuscationRoundsMax) const;
@@ -222,6 +223,7 @@ public:
     bool SetHDMasterKey(const CKey& key);
     CHDChain GetHDChain();
     bool IsHDEnabled() const;
+    void DeriveNewChildKey(CKeyMetadata &metadata, CKey &secret);
 
     /** Zerocin entry changed.
     * @note called with lock cs_wallet held.

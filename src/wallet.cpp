@@ -10,6 +10,7 @@
 
 #include "accumulators.h"
 #include "base58.h"
+#include "chainparams.h"
 #include "checkpoints.h"
 #include "coincontrol.h"
 #include "kernel.h"
@@ -81,6 +82,55 @@ const CWalletTx* CWallet::GetWalletTx(const uint256& hash) const
     return &(it->second);
 }
 
+void CWallet::DeriveNewChildKey(CKeyMetadata& metadata, CKey& secret)
+{
+    // Use BIP44 keypath scheme i.e. m / purpose' / coin_type' / account' / change / address_index
+    CKey key;                       //master key seed (256bit)
+    CExtKey masterKey;              //hd master key
+    CExtKey purposeKey;             //key at m/purpose'
+    CExtKey cointypeKey;            //key at m/purpose'/coin_type'
+    CExtKey accountKey;             //key at m/purpose'/coin_type'/account'
+    CExtKey changeKey;              //key at m/purpose'/coin_type'/account'/change
+    CExtKey childKey;               //key at m/purpose'/coin_type'/account'/change/address_index
+
+    // try to get the master key
+    if (!GetKey(hdChain.masterKeyID, key))
+        throw std::runtime_error(std::string(__func__) + ": Master key not found");
+
+    masterKey.SetMaster(key.begin(), key.size());
+
+    CExtKeyMetadata extkeyMetadata;
+    extkeyMetadata.hdMasterKeyID = hdChain.masterKeyID;
+    // TODO: support multiple accounts, external/internal addresses, and multiple index per each
+    extkeyMetadata.nAccount = 0;
+    extkeyMetadata.nChange = 0;
+
+    // derive m/purpose'
+    // use hardened derivation (child keys >= 0x80000000 are hardened after bip32)
+    masterKey.Derive(purposeKey, 44 | 0x80000000);
+    // derive m/purpose'/coin_type'
+    purposeKey.Derive(cointypeKey, Params().ExtCoinType() | 0x80000000);
+    // derive m/purpose'/coin_type'/account'
+    cointypeKey.Derive(accountKey, extkeyMetadata.nAccount | 0x80000000);
+    // derive m/purpose'/coin_type'/account/change
+    accountKey.Derive(changeKey, extkeyMetadata.nChange);
+
+    // derive child key at next index, skip keys already known to the wallet
+    do {
+        // derive m/purpose'/coin_type'/account/change/address_index
+        extkeyMetadata.nChild = hdChain.nExternalChainCounter;
+        changeKey.Derive(childKey, extkeyMetadata.nChild);
+        // increment childkey index
+        hdChain.nExternalChainCounter++;
+    } while (HaveKey(childKey.key.GetPubKey().GetID()));
+    metadata.extkeyMetadata = extkeyMetadata;
+    secret = childKey.key;
+
+    // update the chain model in the database
+    if (!CWalletDB(strWalletFile).WriteHDChain(hdChain))
+        throw std::runtime_error(std::string(__func__) + ": Writing HD chain model failed");
+}
+
 CPubKey CWallet::GenerateNewKey()
 {
     AssertLockHeld(cs_wallet);                                 // mapKeyMetadata
@@ -89,39 +139,16 @@ CPubKey CWallet::GenerateNewKey()
     RandAddSeedPerfmon();
     CKey secret;
 
+    // Create new metadata
+    int64_t nCreationTime = GetTime();
+    CKeyMetadata metadata(nCreationTime);
+
     // use HD key derivation if HD was enabled during wallet creation
-    if (!hdChain.masterKeyID.IsNull()) {
-        // for now we use a fixed keypath scheme of m/0'/0'/k
-        CKey key;                      //master key seed (256bit)
-        CExtKey masterKey;             //hd master key
-        CExtKey accountKey;            //key at m/0'
-        CExtKey externalChainChildKey; //key at m/0'/0'
-        CExtKey childKey;              //key at m/0'/0'/<n>'
-        // try to get the master key
-        if (!GetKey(hdChain.masterKeyID, key))
-            throw std::runtime_error("CWallet::GenerateNewKey(): Master key not found");
-        masterKey.SetMaster(key.begin(), key.size());
-        // derive m/0'
-        // use hardened derivation (child keys > 0x80000000 are hardened after bip32)
-        masterKey.Derive(accountKey, 0 | 0x80000000);
-        // derive m/0'/0'
-        accountKey.Derive(externalChainChildKey, 0 | 0x80000000);
-        // derive child key at next index, skip keys already known to the wallet
-        do
-        {
-            externalChainChildKey.Derive(childKey, hdChain.nExternalChainCounter | 0x80000000);
-            // increment childkey index
-            hdChain.nExternalChainCounter++;
-        } while(HaveKey(childKey.key.GetPubKey().GetID()));
-        secret = childKey.key;
-        // update the chain model in the database
-        if (!CWalletDB(strWalletFile).WriteHDChain(hdChain))
-            throw std::runtime_error("CWallet::GenerateNewKey(): Writing HD chain model failed");
+    if (IsHDEnabled()) {
+        DeriveNewChildKey(metadata, secret);
     } else {
         secret.MakeNewKey(fCompressed);
     }
-
-    secret.MakeNewKey(fCompressed);
 
     // Compressed public keys were introduced in version 0.6.0
     if (fCompressed)
@@ -131,13 +158,13 @@ CPubKey CWallet::GenerateNewKey()
     assert(secret.VerifyPubKey(pubkey));
 
     // Create new metadata
-    int64_t nCreationTime = GetTime();
-    mapKeyMetadata[pubkey.GetID()] = CKeyMetadata(nCreationTime);
+    mapKeyMetadata[pubkey.GetID()] = metadata;
     if (!nTimeFirstKey || nCreationTime < nTimeFirstKey)
         nTimeFirstKey = nCreationTime;
 
     if (!AddKeyPubKey(secret, pubkey))
         throw std::runtime_error("CWallet::GenerateNewKey() : AddKey failed");
+
     return pubkey;
 }
 
