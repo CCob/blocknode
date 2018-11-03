@@ -661,7 +661,11 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
 
         Lock();
         Unlock(strWalletPassphrase);
-        NewKeyPool();
+
+        // if we are not using HD, generate new keypool
+        if(!IsHDEnabled())
+            NewKeyPool();
+
         Lock();
 
         // Need to completely rewrite the wallet file; if we don't, bdb might keep
