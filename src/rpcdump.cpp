@@ -354,8 +354,8 @@ UniValue dumpprivkey(const UniValue& params, bool fHelp)
 
 UniValue dumphdseed(const UniValue &params, bool fHelp)
 {
-    if (!EnsureWalletIsAvailable(fHelp))
-        return NullUniValue;
+     EnsureWalletIsUnlocked();
+
      if (fHelp || params.size() != 0)
         throw runtime_error(
             "dumphdseed\n"
@@ -369,13 +369,16 @@ UniValue dumphdseed(const UniValue &params, bool fHelp)
      LOCK(pwalletMain->cs_wallet);
      EnsureWalletIsUnlocked();
      // add the base58check encoded extended master if the wallet uses HD
-    CHDChain hdChainCurrent;
-    if (pwalletMain->GetHDChain(hdChainCurrent))
+    CHDChain hdChainCurrent = pwalletMain->GetHDChain();
+    if (!hdChainCurrent.masterKeyID.IsNull())
     {
-        std::vector<unsigned char> vchSeed = hdChainCurrent.GetSeed();
-        if (!pwalletMain->GetDecryptedHDChainSeed(vchSeed))
-            throw JSONRPCError(RPC_INTERNAL_ERROR, "Cannot decrypt HD seed");
-        return HexStr(vchSeed);
+        CKey seed;
+
+        // try to get the master key
+        if (!pwalletMain->GetKey(hdChainCurrent.masterKeyID, seed))
+            throw std::runtime_error(std::string(__func__) + ": Master key not found");
+
+        return HexStr(seed);
     }
      return NullUniValue;
 }
