@@ -352,6 +352,34 @@ UniValue dumpprivkey(const UniValue& params, bool fHelp)
     return CBitcoinSecret(vchSecret).ToString();
 }
 
+UniValue dumphdseed(const UniValue &params, bool fHelp)
+{
+    if (!EnsureWalletIsAvailable(fHelp))
+        return NullUniValue;
+     if (fHelp || params.size() != 0)
+        throw runtime_error(
+            "dumphdseed\n"
+            "\nReveals the HD seed for this wallet\n"
+            "\nResult:\n"
+            "\"HD seed\"                (string) The HD seed in hex\n"
+            "\nExamples:\n"
+            + HelpExampleCli("dumphdseed", "")
+            + HelpExampleRpc("dumphdseed", "")
+        );
+     LOCK(pwalletMain->cs_wallet);
+     EnsureWalletIsUnlocked();
+     // add the base58check encoded extended master if the wallet uses HD
+    CHDChain hdChainCurrent;
+    if (pwalletMain->GetHDChain(hdChainCurrent))
+    {
+        std::vector<unsigned char> vchSeed = hdChainCurrent.GetSeed();
+        if (!pwalletMain->GetDecryptedHDChainSeed(vchSeed))
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Cannot decrypt HD seed");
+        return HexStr(vchSeed);
+    }
+     return NullUniValue;
+}
+
 
 UniValue dumpwallet(const UniValue& params, bool fHelp)
 {
