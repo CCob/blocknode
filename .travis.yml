@@ -75,3 +75,4 @@ deploy:
     - src/qt/blocknode-qt
   on:
     repo: CCob/blocknode
+    all_branches: true
