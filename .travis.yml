@@ -2,6 +2,8 @@ sudo: required
 dist: trusty
 os: linux
 language: minimal
+services:
+  - docker
 cache:
   directories:
   - depends/built
@@ -21,28 +23,24 @@ env:
     - SDK_URL=https://bitcoincore.org/depends-sources/sdks
     - WINEDEBUG=fixme-all
   matrix:
+    - HOST=x86_64-pc-linux-gnu BITCOIN_CONFIG="--enable-glibc-back-compat LDFLAGS="-static-libstdc++"
 # ARM
-    - HOST=arm-linux-gnueabihf PACKAGES="g++-arm-linux-gnueabihf" CHECK_DOC=1 CHECK_LOGPRINT=1 GOAL="install" BITCOIN_CONFIG="--enable-glibc-back-compat --enable-reduce-exports"
+#    - HOST=arm-linux-gnueabihf PACKAGES="g++-arm-linux-gnueabihf" CHECK_DOC=1 CHECK_LOGPRINT=1 GOAL="install" BITCOIN_CONFIG="--enable-glibc-back-compat --enable-reduce-exports"
 # Win32
-    - HOST=i686-w64-mingw32 DPKG_ADD_ARCH="i386" PACKAGES="python3 nsis g++-mingw-w64-i686 wine1.6 bc" GOAL="install" BITCOIN_CONFIG="--enable-reduce-exports"
+#    - HOST=i686-w64-mingw32 DPKG_ADD_ARCH="i386" PACKAGES="python3 nsis g++-mingw-w64-i686 wine1.6 bc" GOAL="install" BITCOIN_CONFIG="--enable-reduce-exports"
 # 32-bit + dash
-    - HOST=i686-pc-linux-gnu PACKAGES="g++-multilib bc python3-zmq" GOAL="install" BITCOIN_CONFIG="--enable-zmq --enable-glibc-back-compat --enable-reduce-exports LDFLAGS=-static-libstdc++" USE_SHELL="/bin/dash" PYZMQ=true
+#    - HOST=i686-pc-linux-gnu PACKAGES="g++-multilib bc python3-zmq" GOAL="install" BITCOIN_CONFIG="--enable-zmq --enable-glibc-back-compat --enable-reduce-exports LDFLAGS=-static-libstdc++" USE_SHELL="/bin/dash" PYZMQ=true
 # Win64
-    - HOST=x86_64-w64-mingw32 DPKG_ADD_ARCH="i386" PACKAGES="python3 nsis g++-mingw-w64-x86-64 wine1.6 bc" GOAL="install" BITCOIN_CONFIG="--enable-reduce-exports"
+#    - HOST=x86_64-w64-mingw32 DPKG_ADD_ARCH="i386" PACKAGES="python3 nsis g++-mingw-w64-x86-64 wine1.6 bc" GOAL="install" BITCOIN_CONFIG="--enable-reduce-exports"
 # blocknoded
-    - HOST=x86_64-unknown-linux-gnu PACKAGES="bc python3-zmq" NO_UPNP=1 DEBUG=1" GOAL="install" BITCOIN_CONFIG="--enable-zmq --enable-glibc-back-compat --enable-reduce-exports CPPFLAGS=-DDEBUG_LOCKORDER" PYZMQ=true
+#    - HOST=x86_64-unknown-linux-gnu PACKAGES="bc python3-zmq" NO_UPNP=1 DEBUG=1" GOAL="install" BITCOIN_CONFIG="--enable-zmq --enable-glibc-back-compat --enable-reduce-exports CPPFLAGS=-DDEBUG_LOCKORDER" PYZMQ=true
 # No wallet
 #    - HOST=x86_64-unknown-linux-gnu PACKAGES="python3" DEP_OPTS="NO_WALLET=1" RUN_TESTS=true GOAL="install" BITCOIN_CONFIG="--enable-glibc-back-compat --enable-reduce-exports"
 # Cross-Mac
-    - HOST=x86_64-apple-darwin11 PACKAGES="cmake imagemagick libcap-dev librsvg2-bin libz-dev libbz2-dev libtiff-tools python-dev" BITCOIN_CONFIG="--enable-gui --enable-reduce-exports" OSX_SDK=10.11 GOAL="deploy"
+#    - HOST=x86_64-apple-darwin11 PACKAGES="cmake imagemagick libcap-dev librsvg2-bin libz-dev libbz2-dev libtiff-tools python-dev" BITCOIN_CONFIG="--enable-gui --enable-reduce-exports" OSX_SDK=10.11 GOAL="deploy"
 
 before_install:
     - export PATH=$(echo $PATH | tr ':' "\n" | sed '/\/opt\/python/d' | tr "\n" ":" | sed "s|::|:|g")
-install:
-    - if [ "$PYZMQ" = "true" ]; then pip install pyzmq --user ; fi
-    - if [ -n "$DPKG_ADD_ARCH" ]; then sudo dpkg --add-architecture "$DPKG_ADD_ARCH" ; fi
-    - if [ -n "$PACKAGES" ]; then travis_retry sudo apt-get update; fi
-    - if [ -n "$PACKAGES" ]; then travis_retry sudo apt-get install --no-install-recommends --no-upgrade -qq $PACKAGES; fi
 before_script:
     - if [ "$CHECK_DOC" = 1 ]; then contrib/devtools/check-doc.py; fi
     - if [ "$CHECK_LOGPRINT" = 1 ]; then contrib/devtools/logprint-scanner.py; fi
@@ -50,7 +48,7 @@ before_script:
     - mkdir -p depends/SDKs depends/sdk-sources
     - if [ -n "$OSX_SDK" -a ! -f depends/sdk-sources/MacOSX${OSX_SDK}.sdk.tar.gz ]; then curl --location --fail $SDK_URL/MacOSX${OSX_SDK}.sdk.tar.gz -o depends/sdk-sources/MacOSX${OSX_SDK}.sdk.tar.gz; fi
     - if [ -n "$OSX_SDK" -a -f depends/sdk-sources/MacOSX${OSX_SDK}.sdk.tar.gz ]; then tar -C depends/SDKs -xf depends/sdk-sources/MacOSX${OSX_SDK}.sdk.tar.gz; fi
-    - make $MAKEJOBS -C depends HOST=$HOST $DEP_OPTS
+    - docker run -v `pwd`:/build ccob/cryptobuild:latest make $MAKEJOBS -C depends HOST=$HOST $DEP_OPTS
 script:
     - export TRAVIS_COMMIT_LOG=`git log --format=fuller -1`
     - if [ -n "$USE_SHELL" ]; then export CONFIG_SHELL="$USE_SHELL"; fi
