@@ -2,8 +2,22 @@ sudo: required
 dist: trusty
 os: linux
 language: minimal
-services:
-- docker
+if: tag IS blank
+addons:
+  apt:
+    packages:
+    - build-essential
+    - libtool
+    - autotools-dev
+    - automake
+    - pkg-config
+    - bsdmainutils
+    - curl
+    - git
+    - g++-mingw-w64-x86-64
+    - g++-mingw-w64-i686
+    - mingw-w64-i686-dev
+    - python3
 cache:
   directories:
   - depends/built
@@ -37,7 +51,7 @@ before_script:
   fi
 - if [ -n "$OSX_SDK" -a -f depends/sdk-sources/MacOSX${OSX_SDK}.sdk.tar.gz ]; then
   tar -C depends/SDKs -xf depends/sdk-sources/MacOSX${OSX_SDK}.sdk.tar.gz; fi
-- docker run -v `pwd`:/build ccob/cryptobuild:latest make $MAKEJOBS -C depends HOST=$HOST
+- make $MAKEJOBS -C depends HOST=$HOST
   $DEP_OPTS
 script:
 - export TRAVIS_COMMIT_LOG=`git log --format=fuller -1`
@@ -67,6 +81,10 @@ notifications:
 deploy:
   provider: releases
   skip_cleanup: true
+  prerelease: true
+  name: $TRAVIS_BRANCH 
+  target_commitish: $TRAVIS_COMMIT
+  overwrite: true  
   api_key:
     secure: B+KCKtU9vSQcNbZPgCewM43ABvQK/VcrYGasuzyF3hKxlSU68iR0Dw4Q+ScDCtXJw9eQ9C/yXBHwzaee21ucarQdQq6u8OhLYnmWmGy0xb0lEvDoVuBjpfTgMfvy3ZaxLrS7tYGFpDpmhD9802D3SChWy2Y0MUHsBbos8cfFLHzBkTBjlb07tTYaUZFbduIUKgvTQv5wczGDLpMqp/uK92RRErJHehvpJjRnzIGpRiPs9+1ziSk9rLuZweejnNUtQ6HpW6RQYDXQo8fHk1jd6Y9I5a+ajrQwNbsFUAwyhAnl1FS4avX49T5hzAt/EH9X0pT6pM97CW/D4K6nurH2tnUyHde79lzmaanyyhfEvt6Lycj3Angjk+od8rJCuDGsIeF4GsD+nH4G54WuqiaSRhGGG7t0qWqQN6HsGJtPPx7697sC3vAE5UpQ8v/YeDirAjCo0nvgvwZvdXPYkKYCRqPVmXbppffIiwDXgrnBz1sGjTGbC5YCIeIczAfnwfPspc5GYsQN7rZJEnSfGlcT9iscqi6rLlXDRgsl7Ny8eHa+d7dOY9QYC9xTZFILlfSGgFGjMej25uc9DKsiWs3j08vXTFKLoVzlOCbmcSS1teb8XnnYDB/c2kz1PZUTF9eLdbpDd1Of2iwth+fg8DoMEQU0KkuVLXimFzD+sa1yuHc=
   file: 
