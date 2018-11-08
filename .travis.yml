@@ -18,6 +18,9 @@ addons:
     - g++-mingw-w64-i686
     - mingw-w64-i686-dev
     - python3
+    - nsis
+    - wine1.6
+    - bc
 cache:
   directories:
   - depends/built
@@ -38,6 +41,7 @@ env:
   - WINEDEBUG=fixme-all
   matrix:
   - HOST=x86_64-pc-linux-gnu BITCOIN_CONFIG="--enable-glibc-back-compat LDFLAGS="-static-libstdc++"
+  - HOST=x86_64-w64-mingw32 DPKG_ADD_ARCH="i386" BITCOIN_CONFIG="--enable-reduce-exports"
 before_install:
 - export PATH=$(echo $PATH | tr ':' "\n" | sed '/\/opt\/python/d' | tr "\n" ":" |
   sed "s|::|:|g")
