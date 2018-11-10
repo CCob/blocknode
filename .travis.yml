@@ -14,13 +14,12 @@ addons:
     - bsdmainutils
     - curl
     - git
-    - g++-mingw-w64-x86-64
-    - g++-mingw-w64-i686
-    - mingw-w64-i686-dev
     - python3
     - nsis
     - wine1.6
     - bc
+    - software-properties-common
+    
 cache:
   directories:
   - depends/built
@@ -43,6 +42,14 @@ env:
   - HOST=x86_64-pc-linux-gnu BITCOIN_CONFIG="--enable-glibc-back-compat LDFLAGS="-static-libstdc++"
   - HOST=x86_64-w64-mingw32 DPKG_ADD_ARCH="i386" BITCOIN_CONFIG="--enable-reduce-exports"
 before_install:
+#Upgraded GCC 5.3 and updated dpkg (dpkg on base Travis image is too old)
+- sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
+- sudo add-apt-repository ppa:adrozdoff/mingw -y
+- sudo apt-get update
+- sudo apt-get install -y gcc-5-mingw-w64 dpkg 
+- sudo ln -s /usr/bin/x86_64-w64-mingw32-gcc-5 /usr/bin/x86_64-w64-mingw32-gcc
+- sudo ln -s /usr/bin/x86_64-w64-mingw32-g++-5 /usr/bin/x86_64-w64-mingw32-g++
+- wget http://de.archive.ubuntu.com/ubuntu/pool/universe/m/mingw-w64/mingw-w64-common_5.0.3-1_all.deb; sudo dpkg -i mingw-w64-common_5.0.3-1_all.deb
 - export PATH=$(echo $PATH | tr ':' "\n" | sed '/\/opt\/python/d' | tr "\n" ":" |
   sed "s|::|:|g")
 before_script:
