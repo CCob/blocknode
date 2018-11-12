@@ -35,6 +35,7 @@ env:
   matrix:
   - HOST=x86_64-pc-linux-gnu BITCOIN_CONFIG="--enable-glibc-back-compat LDFLAGS="-static-libstdc++"
   - HOST=x86_64-w64-mingw32 DPKG_ADD_ARCH="i386" BITCOIN_CONFIG="--enable-reduce-exports"
+  - HOST=i686-w64-mingw32 DPKG_ADD_ARCH="i386" BITCOIN_CONFIG="--enable-reduce-exports"
    
 before_install:
   - DOCKER_ID=`docker run -d -e "HOST=$HOST" -e "BINCOIN_CONFIG=$BITCOIN_CONFIG" -v $PWD:/build ccob/cryptobuild:latest`
