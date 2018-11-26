@@ -76,6 +76,9 @@ enum WalletFeature {
     FEATURE_WALLETCRYPT = 40000, // wallet encryption
     FEATURE_COMPRPUBKEY = 60000, // compressed public keys
 
+    FEATURE_HD = 120200,    // Hierarchical key derivation after BIP32 (HD Wallet), BIP44 (multi-coin), BIP39 (mnemonic)
+                            // which uses on-the-fly private key derivation
+
     FEATURE_LATEST = 61000
 };
 
@@ -189,10 +192,6 @@ private:
 
     void SyncMetaData(std::pair<TxSpends::iterator, TxSpends::iterator>);
 
-    /* the hd chain data model (external chain counters) */
-    CHDChain hdChain;
-
-
     public:
     bool MintableCoins();
     bool SelectStakeCoins(std::set<std::pair<const CWalletTx*, unsigned int> >& setCoins, CAmount nTargetAmount) const;
@@ -217,13 +216,19 @@ private:
     void ReconsiderZerocoins(std::list<CZerocoinMint>& listMintsRestored);
     void ZBndBackupWallet();
 
-    /* Set the hd chain model (chain child index counters) */
+    /**
+     * HD Wallet Functions
+     */
+
+    bool GetDecryptedHDChainSeed(std::vector<unsigned char> &vchSeedRet);
+    /* Returns true if HD is enabled */
+    bool IsHDEnabled();
+    /* Generates a new HD chain */
+    void GenerateNewHDChain();
+    /* Set the HD chain model (chain child index counters) */
     bool SetHDChain(const CHDChain& chain, bool memonly);
-    /* Set the current hd master key (will reset the chain child index counters) */
-    bool SetHDMasterKey(const CKey& key);
-    CHDChain GetHDChain();
-    bool IsHDEnabled() const;
-    void DeriveNewChildKey(CKeyMetadata &metadata, CKey &secret);
+    bool SetCryptedHDChain(const CHDChain& chain, bool memonly);
+
 
     /** Zerocin entry changed.
     * @note called with lock cs_wallet held.
@@ -365,6 +370,8 @@ private:
 
     int64_t nTimeFirstKey;
 
+	std::map<CKeyID, CHDPubKey> mapHdPubKeys; //<! memory map of HD extended pubkeys
+
     const CWalletTx* GetWalletTx(const uint256& hash) const;
 
     //! check whether we are allowed to upgrade (or already support) to the named feature
@@ -395,6 +402,19 @@ private:
     //  keystore implementation
     // Generate a new key
     CPubKey GenerateNewKey();
+
+    void DeriveNewChildKey(CKeyMetadata& metadata, CKey& secret);
+    //! HaveKey implementation that also checks the mapHdPubKeys
+    bool HaveKey(const CKeyID &address) const;
+    //! GetPubKey implementation that also checks the mapHdPubKeys
+    bool GetPubKey(const CKeyID &address, CPubKey& vchPubKeyOut) const;
+    //! GetKey implementation that can derive a HD private key on the fly
+    bool GetKey(const CKeyID &address, CKey& keyOut) const;
+    //! Adds a HDPubKey into the wallet(database)
+    bool AddHDPubKey(const CExtPubKey &extPubKey);
+    //! loads a HDPubKey into the wallets memory
+    bool LoadHDPubKey(const CHDPubKey &hdPubKey);
+
 
     //! Adds a key to the store, and saves it to disk.
     bool AddKeyPubKey(const CKey& key, const CPubKey& pubkey);

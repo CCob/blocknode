@@ -10,9 +10,11 @@
 
 #include "accumulators.h"
 #include "base58.h"
+#include "bip39.h"
 #include "chainparams.h"
 #include "checkpoints.h"
 #include "coincontrol.h"
+#include "hdchain.h"
 #include "kernel.h"
 #include "masternode-budget.h"
 #include "net.h"
@@ -82,90 +84,178 @@ const CWalletTx* CWallet::GetWalletTx(const uint256& hash) const
     return &(it->second);
 }
 
-void CWallet::DeriveNewChildKey(CKeyMetadata& metadata, CKey& secret)
-{
-    // Use BIP44 keypath scheme i.e. m / purpose' / coin_type' / account' / change / address_index
-    CKey key;                       //master key seed (256bit)
-    CExtKey masterKey;              //hd master key
-    CExtKey purposeKey;             //key at m/purpose'
-    CExtKey cointypeKey;            //key at m/purpose'/coin_type'
-    CExtKey accountKey;             //key at m/purpose'/coin_type'/account'
-    CExtKey changeKey;              //key at m/purpose'/coin_type'/account'/change
-    CExtKey childKey;               //key at m/purpose'/coin_type'/account'/change/address_index
-
-    // try to get the master key
-    if (!GetKey(hdChain.masterKeyID, key))
-        throw std::runtime_error(std::string(__func__) + ": Master key not found");
-
-    masterKey.SetMaster(key.begin(), key.size());
-
-    CExtKeyMetadata extkeyMetadata;
-    extkeyMetadata.hdMasterKeyID = hdChain.masterKeyID;
-    // TODO: support multiple accounts, external/internal addresses, and multiple index per each
-    extkeyMetadata.nAccount = 0;
-    extkeyMetadata.nChange = 0;
-
-    // derive m/purpose'
-    // use hardened derivation (child keys >= 0x80000000 are hardened after bip32)
-    masterKey.Derive(purposeKey, 44 | 0x80000000);
-    // derive m/purpose'/coin_type'
-    purposeKey.Derive(cointypeKey, Params().ExtCoinType() | 0x80000000);
-    // derive m/purpose'/coin_type'/account'
-    cointypeKey.Derive(accountKey, extkeyMetadata.nAccount | 0x80000000);
-    // derive m/purpose'/coin_type'/account/change
-    accountKey.Derive(changeKey, extkeyMetadata.nChange);
-
-    // derive child key at next index, skip keys already known to the wallet
-    do {
-        // derive m/purpose'/coin_type'/account/change/address_index
-        extkeyMetadata.nChild = hdChain.nExternalChainCounter;
-        changeKey.Derive(childKey, extkeyMetadata.nChild);
-        // increment childkey index
-        hdChain.nExternalChainCounter++;
-    } while (HaveKey(childKey.key.GetPubKey().GetID()));
-    metadata.extkeyMetadata = extkeyMetadata;
-    secret = childKey.key;
-
-    // update the chain model in the database
-    if (!CWalletDB(strWalletFile).WriteHDChain(hdChain))
-        throw std::runtime_error(std::string(__func__) + ": Writing HD chain model failed");
-}
-
 CPubKey CWallet::GenerateNewKey()
 {
-    AssertLockHeld(cs_wallet);                                 // mapKeyMetadata
+    AssertLockHeld(cs_wallet); // mapKeyMetadata
     bool fCompressed = CanSupportFeature(FEATURE_COMPRPUBKEY); // default to compressed public keys if we want 0.6.0 wallets
 
-    RandAddSeedPerfmon();
     CKey secret;
 
     // Create new metadata
     int64_t nCreationTime = GetTime();
     CKeyMetadata metadata(nCreationTime);
 
+    CPubKey pubkey;
     // use HD key derivation if HD was enabled during wallet creation
     if (IsHDEnabled()) {
         DeriveNewChildKey(metadata, secret);
+        pubkey = secret.GetPubKey();
     } else {
         secret.MakeNewKey(fCompressed);
+
+        // Compressed public keys were introduced in version 0.6.0
+        if (fCompressed)
+            SetMinVersion(FEATURE_COMPRPUBKEY);
+
+        pubkey = secret.GetPubKey();
+        assert(secret.VerifyPubKey(pubkey));
+
+        // Create new metadata
+        mapKeyMetadata[pubkey.GetID()] = metadata;
+        if (!nTimeFirstKey || nCreationTime < nTimeFirstKey)
+            nTimeFirstKey = nCreationTime;
+
+        if (!AddKeyPubKey(secret, pubkey))
+            throw std::runtime_error(std::string(__func__) + ": AddKey failed");
+    }
+    return pubkey;
+}
+
+void CWallet::DeriveNewChildKey(CKeyMetadata& metadata, CKey& secret)
+{
+    CHDChain hdChainTmp;
+    if (!GetHDChain(hdChainTmp)) {
+        throw std::runtime_error(std::string(__func__) + ": GetHDChain failed");
     }
 
-    // Compressed public keys were introduced in version 0.6.0
-    if (fCompressed)
-        SetMinVersion(FEATURE_COMPRPUBKEY);
+    std::vector<unsigned char> vchSeed = hdChainTmp.GetSeed();
+    if (!DecryptHDChainSeed(vchSeed))
+        throw std::runtime_error(std::string(__func__) + ": DecryptHDChainSeed failed");
+    hdChainTmp.SetSeed(vchSeed, false);
+    // make sure seed matches this chain
+    if (hdChainTmp.id != hdChainTmp.GetSeedHash())
+        throw std::runtime_error(std::string(__func__) + ": Wrong HD chain!");
+
+    // derive child key at next index, skip keys already known to the wallet
+    CExtKey childKey;
+    uint32_t childIndex = hdChainTmp.nExternalChainCounter;
+    do {
+        hdChainTmp.DeriveChildExtKey(childIndex, childKey);
+        // increment childkey index
+        childIndex++;
+    } while (HaveKey(childKey.key.GetPubKey().GetID()));
+    secret = childKey.key;
 
     CPubKey pubkey = secret.GetPubKey();
     assert(secret.VerifyPubKey(pubkey));
 
-    // Create new metadata
+    // store metadata
     mapKeyMetadata[pubkey.GetID()] = metadata;
-    if (!nTimeFirstKey || nCreationTime < nTimeFirstKey)
-        nTimeFirstKey = nCreationTime;
+    if (!nTimeFirstKey || metadata.nCreateTime < nTimeFirstKey)
+        nTimeFirstKey = metadata.nCreateTime;
 
-    if (!AddKeyPubKey(secret, pubkey))
-        throw std::runtime_error("CWallet::GenerateNewKey() : AddKey failed");
+    // update the chain model in the database
+    CHDChain hdChainCurrent;
+    GetHDChain(hdChainCurrent);
+    hdChainCurrent.nExternalChainCounter = childIndex;
+    if (IsCrypted()) {
+        if (!SetCryptedHDChain(hdChainCurrent, false))
+            throw std::runtime_error(std::string(__func__) + ": SetCryptedHDChain failed");
+    }
+    else {
+        if (!SetHDChain(hdChainCurrent, false))
+            throw std::runtime_error(std::string(__func__) + ": SetHDChain failed");
+    }
 
-    return pubkey;
+    if (!AddHDPubKey(childKey.Neuter()))
+        throw std::runtime_error(std::string(__func__) + ": AddHDPubKey failed");
+}
+
+bool CWallet::GetPubKey(const CKeyID &address, CPubKey& vchPubKeyOut) const
+{
+    LOCK(cs_wallet);
+    std::map<CKeyID, CHDPubKey>::const_iterator mi = mapHdPubKeys.find(address);
+    if (mi != mapHdPubKeys.end())
+    {
+        const CHDPubKey &hdPubKey = (*mi).second;
+        vchPubKeyOut = hdPubKey.extPubKey.pubkey;
+        return true;
+    }
+    else
+        return CCryptoKeyStore::GetPubKey(address, vchPubKeyOut);
+}
+
+bool CWallet::GetKey(const CKeyID &address, CKey& keyOut) const
+{
+    LOCK(cs_wallet);
+    std::map<CKeyID, CHDPubKey>::const_iterator mi = mapHdPubKeys.find(address);
+    if (mi != mapHdPubKeys.end())
+    {
+        // if the key has been found in mapHdPubKeys, derive it on the fly
+        const CHDPubKey &hdPubKey = (*mi).second;
+        CHDChain hdChainCurrent;
+        if (!GetHDChain(hdChainCurrent))
+            throw std::runtime_error(std::string(__func__) + ": GetHDChain failed");
+        std::vector<unsigned char> vchSeed = hdChainCurrent.GetSeed();
+        if (!DecryptHDChainSeed(vchSeed))
+            throw std::runtime_error(std::string(__func__) + ": DecryptHDChainSeed failed");
+        hdChainCurrent.SetSeed(vchSeed, false);
+        // make sure seed matches this chain
+        if (hdChainCurrent.id != hdChainCurrent.GetSeedHash())
+            throw std::runtime_error(std::string(__func__) + ": Wrong HD chain!");
+
+        CExtKey extkey;
+        hdChainCurrent.DeriveChildExtKey(hdPubKey.extPubKey.nChild, extkey);
+        keyOut = extkey.key;
+
+        return true;
+    }
+    else {
+        return CCryptoKeyStore::GetKey(address, keyOut);
+    }
+}
+
+bool CWallet::HaveKey(const CKeyID &address) const
+{
+    LOCK(cs_wallet);
+    if (mapHdPubKeys.count(address) > 0)
+        return true;
+    return CCryptoKeyStore::HaveKey(address);
+}
+
+bool CWallet::LoadHDPubKey(const CHDPubKey &hdPubKey)
+{
+    AssertLockHeld(cs_wallet);
+
+    mapHdPubKeys[hdPubKey.extPubKey.pubkey.GetID()] = hdPubKey;
+    return true;
+}
+
+bool CWallet::AddHDPubKey(const CExtPubKey &extPubKey)
+{
+    AssertLockHeld(cs_wallet);
+
+    CHDChain hdChainCurrent;
+    GetHDChain(hdChainCurrent);
+
+    CHDPubKey hdPubKey;
+    hdPubKey.extPubKey = extPubKey;
+    hdPubKey.hdchainID = hdChainCurrent.id;
+    mapHdPubKeys[extPubKey.pubkey.GetID()] = hdPubKey;
+
+    // check if we need to remove from watch-only
+    CScript script;
+    script = GetScriptForDestination(extPubKey.pubkey.GetID());
+    if (HaveWatchOnly(script))
+        RemoveWatchOnly(script);
+    script = GetScriptForRawPubKey(extPubKey.pubkey);
+    if (HaveWatchOnly(script))
+        RemoveWatchOnly(script);
+
+    if (!fFileBacked)
+        return true;
+
+    return CWalletDB(strWalletFile).WriteHDPubKey(hdPubKey, mapKeyMetadata[extPubKey.pubkey.GetID()]);
 }
 
 bool CWallet::AddKeyPubKey(const CKey& secret, const CPubKey& pubkey)
@@ -634,6 +724,10 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
             pwalletdbEncryption->WriteMasterKey(nMasterKeyMaxID, kMasterKey);
         }
 
+        // must get current HD chain before EncryptKeys
+        CHDChain hdChainCurrent;
+        GetHDChain(hdChainCurrent);
+
         if (!EncryptKeys(vMasterKey)) {
             if (fFileBacked) {
                 pwalletdbEncryption->TxnAbort();
@@ -642,6 +736,24 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
             // We now probably have half of our keys encrypted in memory, and half not...
             // die and let the user reload their unencrypted wallet.
             assert(false);
+        }
+
+        if (!hdChainCurrent.IsNull()) {
+            assert(EncryptHDChainSeed(vMasterKey));
+
+            CHDChain hdChainCrypted;
+            assert(GetHDChain(hdChainCrypted));
+
+            DBG(
+                printf("EncryptWallet -- current seed: '%s'\n", HexStr(hdChainCurrent.GetSeed()).c_str());
+                printf("EncryptWallet -- crypted seed: '%s'\n", HexStr(hdChainCrypted.GetSeed()).c_str());
+            );
+
+            // ids should match, seed hashes should not
+            assert(hdChainCurrent.id == hdChainCrypted.id);
+            assert(hdChainCurrent.GetSeedHash() != hdChainCrypted.GetSeedHash());
+
+            assert(SetCryptedHDChain(hdChainCrypted, false));
         }
 
         // Encryption was introduced in version 0.4.0
@@ -996,41 +1108,123 @@ bool CWallet::IsChange(const CTxOut& txout) const
     return false;
 }
 
-bool CWallet::SetHDMasterKey(const CKey& key)
-{
-    LOCK(cs_wallet);
-    // store the key as normal "key"/"ckey" object
-    // in the database
-    // key metadata is not required
-    CPubKey pubkey = key.GetPubKey();
-    if (!AddKeyPubKey(key, pubkey))
-        throw std::runtime_error("CWallet::GenerateNewKey(): AddKey failed");
-    // store the keyid (hash160) together with
-    // the child index counter in the database
-    // as a hdchain object
+void CWallet::GenerateNewHDChain()
+ {
+    std::string mnemonic;
+    std::vector<unsigned char> vchSeed;
+    std::string strSeed = GetArg("-hdseed", "not hex");
+
+    if(mapArgs.count("-hdseed") && IsHex(strSeed)) {
+        vchSeed = ParseHex(strSeed);
+    } else {
+
+        if (mapArgs.count("-hdseed") && !IsHex(GetArg("-hdseed", "")))
+            LogPrintf("CWallet::GenerateNewHDChain -- Incorrect seed, generating random one instead\n");
+
+        if(mapArgs.count("-mnemonic")) {
+            mnemonic = GetArg("-mnemonic", "");
+        } else {
+            mnemonic = mnemonic_generate(128);
+        }
+
+        if(!mnemonic_check(mnemonic)) {
+            throw std::runtime_error(std::string(__func__) + ": invalid mnemonic");
+        }
+        DBG( printf("mnemonic: '%s'\n", mnemonic.c_str()); );
+
+        const char *passphrase;
+        // default mnemonic passphrase is empty string
+        // however if no mnemonic was specified by the user, use random passphrase instead
+        passphrase = GetArg("-mnemonicpassphrase", "").c_str();
+        DBG( printf("mnemonicpassphrase: '%s'\n", passphrase); );
+
+        uint8_t seed[64];
+        mnemonic_to_seed(mnemonic, passphrase, seed, 0);
+        vchSeed = std::vector<unsigned char>(seed, seed + 64);
+    }
+
+    DBG(
+        printf("seed: '%s'\n", HexStr(vchSeed).c_str());
+
+        CExtKey extkey;
+        extkey.SetMaster(&vchSeed[0], vchSeed.size());
+
+        CBitcoinExtKey b58extkey;
+        b58extkey.SetKey(extkey);
+        printf("extended private masterkey: '%s'\n", b58extkey.ToString().c_str());
+
+        CExtPubKey extpubkey;
+        extpubkey = extkey.Neuter();
+
+        CBitcoinExtPubKey b58extpubkey;
+        b58extpubkey.SetKey(extpubkey);
+        printf("extended public masterkey: '%s'\n", b58extpubkey.ToString().c_str());
+    );
+
     CHDChain newHdChain;
-    newHdChain.masterKeyID = pubkey.GetID();
-    SetHDChain(newHdChain, false);
-    return true;
-}
-
-CHDChain CWallet::GetHDChain()
-{
-    return hdChain;
-}
-
-bool CWallet::IsHDEnabled() const
-{
-    return !hdChain.masterKeyID.IsNull();
+    if (!newHdChain.SetSeed(vchSeed, true))
+        throw std::runtime_error(std::string(__func__) + ": SetSeed failed");
+    if (!SetHDChain(newHdChain, false))
+        throw std::runtime_error(std::string(__func__) + ": SetHDChain failed");
 }
 
 bool CWallet::SetHDChain(const CHDChain& chain, bool memonly)
 {
     LOCK(cs_wallet);
+
+    if (!CCryptoKeyStore::SetHDChain(chain))
+        return false;
+
     if (!memonly && !CWalletDB(strWalletFile).WriteHDChain(chain))
-        throw runtime_error("AddHDChain(): writing chain failed");
-    hdChain = chain;
+        throw std::runtime_error(std::string(__func__) + ": WriteHDChain failed");
+
     return true;
+}
+
+bool CWallet::SetCryptedHDChain(const CHDChain& chain, bool memonly)
+{
+    LOCK(cs_wallet);
+
+    if (!CCryptoKeyStore::SetCryptedHDChain(chain))
+        return false;
+
+    if (!memonly) {
+        if (!fFileBacked)
+            return false;
+        if (pwalletdbEncryption) {
+            if (!pwalletdbEncryption->WriteCryptedHDChain(chain))
+                throw std::runtime_error(std::string(__func__) + ": WriteCryptedHDChain failed");
+        } else {
+            if (!CWalletDB(strWalletFile).WriteCryptedHDChain(chain))
+                throw std::runtime_error(std::string(__func__) + ": WriteCryptedHDChain failed");
+        }
+    }
+
+    return true;
+}
+
+bool CWallet::GetDecryptedHDChainSeed(std::vector<unsigned char>& vchSeedRet)
+{
+    LOCK(cs_wallet);
+    CHDChain hdChainTmp;
+    if (!GetHDChain(hdChainTmp)) {
+        return false;
+    }
+    std::vector<unsigned char> vchSeed = hdChainTmp.GetSeed();
+    if (!DecryptHDChainSeed(vchSeed))
+        return false;
+    hdChainTmp.SetSeed(vchSeed, false);
+    // make sure seed matches this chain
+    if (hdChainTmp.id != hdChainTmp.GetSeedHash())
+        return false;
+    vchSeedRet = vchSeed;
+    return true;
+}
+
+bool CWallet::IsHDEnabled()
+{
+    CHDChain hdChainCurrent;
+    return GetHDChain(hdChainCurrent);
 }
 
 int64_t CWalletTx::GetTxTime() const

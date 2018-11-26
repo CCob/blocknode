@@ -412,7 +412,7 @@ std::string HelpMessage(HelpMessageMode mode)
 #if USE_UPNP
     strUsage += HelpMessageOpt("-upnp", _("Use UPnP to map the listening port (default: 1 when listening)"));
 #else
-    strUsage += HelpMessageOpt("-upnp", strprintf(_("Use UPnP to map the listening port (default: %u)"), 0));
+    strUsage += HelpMessageOpt("-upnp", strprintff(_("Use UPnP to map the listening port (default: %u)"), 0));
 #endif
 #endif
     strUsage += HelpMessageOpt("-whitebind=<addr>", _("Bind to given address and whitelist peers connecting to it. Use [host]:port notation for IPv6"));
@@ -437,6 +437,8 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-txconfirmtarget=<n>", strprintf(_("If paytxfee is not set, include enough fee so transactions begin confirmation on average within n blocks (default: %u)"), 1));
     strUsage += HelpMessageOpt("-usehd", _("Use hierarchical deterministic key generation (HD) after bip32. Only has effect during wallet creation/first start") + " " + strprintf(_("(default: %u)"), DEFAULT_USE_HD_WALLET));
     strUsage += HelpMessageOpt("-hdseed", _("User defined seed for HD wallet (should be in hex). Only has effect during wallet creation/first start (default: randomly generated)"));
+    strUsage += HelpMessageOpt("-mnemonic", _("User defined mnemonic for HD wallet (bip39). Only has effect during wallet creation/first start (default: randomly generated)"));
+    strUsage += HelpMessageOpt("-mnemonicpassphrase", _("User defined memonic passphrase for HD wallet (bip39). Only has effect during wallet creation/first start (default: randomly generated)"));
     strUsage += HelpMessageOpt("-maxtxfee=<amt>", strprintf(_("Maximum total fees to use in a single wallet transaction, setting too low may abort large transactions (default: %s)"),
         FormatMoney(maxTxFee)));
     strUsage += HelpMessageOpt("-upgradewallet", _("Upgrade wallet to latest format") + " " + _("on startup"));
@@ -841,6 +843,12 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             InitError(_("Invalid amount for -reservebalance=<amount>"));
             return false;
         }
+    }
+
+    if (mapArgs.count("-hdseed") && IsHex(GetArg("-hdseed", "not hex")) && (mapArgs.count("-mnemonic") || mapArgs.count("-mnemonicpassphrase"))) {
+        mapArgs.erase("-mnemonic");
+        mapArgs.erase("-mnemonicpassphrase");
+        LogPrintf("%s: parameter interaction: can't use -hdseed and -mnemonic/-mnemonicpassphrase together, will prefer -seed\n", __func__);
     }
 
     // Make sure enough file descriptors are available
@@ -1569,24 +1577,13 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
         }
 
         if (fFirstRun) {
-            // Create new keyUser and set as default key
-            if (GetBoolArg("-usehd", DEFAULT_USE_HD_WALLET)) {
-                // generate a new master key
-                CKey key;
-
-                std::string strSeed = GetArg("-hdseed","");
-                if(mapArgs.count("-hdseed") && IsHex(strSeed)) {
-                    vector<unsigned char> vchSeed = ParseHex(strSeed);
-                    key.Set(vchSeed.begin(),vchSeed.end(),false);
-                }
-                else
-                    key.MakeNewKey(true);
-
-                if (!pwalletMain->SetHDMasterKey(key))
-                    throw std::runtime_error("CWallet::GenerateNewKey(): Storing master key failed");
-            }
 
             RandAddSeedPerfmon();
+
+            if (GetBoolArg("-usehd", DEFAULT_USE_HD_WALLET) && !pwalletMain->IsHDEnabled()) {
+                // generate a new master key
+				pwalletMain->GenerateNewHDChain();
+            }
 
             CPubKey newDefaultKey;
             if (pwalletMain->GetKeyFromPool(newDefaultKey)) {
@@ -1596,11 +1593,12 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             }
 
             pwalletMain->SetBestChain(chainActive.GetLocator());
-        } else if (mapArgs.count("-usehd")) {
+
+        }else if (mapArgs.count("-usehd")) {
             bool useHD = GetBoolArg("-usehd", DEFAULT_USE_HD_WALLET);
-            if (!pwalletMain->GetHDChain().masterKeyID.IsNull() && !useHD)
+            if (pwalletMain->IsHDEnabled() && !useHD)
                 return InitError(strprintf(_("Error loading %s: You can't disable HD on a already existing HD wallet"), strWalletFile));
-            if (pwalletMain->GetHDChain().masterKeyID.IsNull() && useHD)
+            if (!pwalletMain->IsHDEnabled() && useHD)
                 return InitError(strprintf(_("Error loading %s: You can't enable HD on a already existing non-HD wallet"), strWalletFile));
         }
 

@@ -30,6 +30,15 @@
 #include <boost/filesystem/path.hpp>
 #include <boost/thread/exceptions.hpp>
 
+// Uncomment the following line to enable debugging messages
+// or enable on a per file basis prior to inclusion of util.h
+//#define ENABLE_BLOCKNODE_DEBUG
+#ifdef ENABLE_BLOCKNODE_DEBUG
+#define DBG( x ) x
+#else
+#define DBG( x )
+#endif
+
 //Blocknode only features
 
 extern bool fMasterNode;

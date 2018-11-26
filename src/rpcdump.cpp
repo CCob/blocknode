@@ -354,9 +354,7 @@ UniValue dumpprivkey(const UniValue& params, bool fHelp)
 
 UniValue dumphdseed(const UniValue &params, bool fHelp)
 {
-     EnsureWalletIsUnlocked();
-
-     if (fHelp || params.size() != 0)
+    if (fHelp || params.size() != 0)
         throw runtime_error(
             "dumphdseed\n"
             "\nReveals the HD seed for this wallet\n"
@@ -366,34 +364,35 @@ UniValue dumphdseed(const UniValue &params, bool fHelp)
             + HelpExampleCli("dumphdseed", "")
             + HelpExampleRpc("dumphdseed", "")
         );
-     LOCK(pwalletMain->cs_wallet);
-     EnsureWalletIsUnlocked();
-     // add the base58check encoded extended master if the wallet uses HD
-    CHDChain hdChainCurrent = pwalletMain->GetHDChain();
-    if (!hdChainCurrent.masterKeyID.IsNull())
+    LOCK(pwalletMain->cs_wallet);
+    EnsureWalletIsUnlocked();
+    // add the base58check encoded extended master if the wallet uses HD
+    CHDChain hdChainCurrent;
+    if (pwalletMain->GetHDChain(hdChainCurrent))
     {
-        CKey seed;
-
-        // try to get the master key
-        if (!pwalletMain->GetKey(hdChainCurrent.masterKeyID, seed))
-            throw std::runtime_error(std::string(__func__) + ": Master key not found");
-
-        return HexStr(seed);
+        std::vector<unsigned char> vchSeed = hdChainCurrent.GetSeed();
+        if (!pwalletMain->GetDecryptedHDChainSeed(vchSeed))
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Cannot decrypt HD seed");
+        return HexStr(vchSeed);
     }
-     return NullUniValue;
+    return NullUniValue;
+
 }
 
 
 UniValue dumpwallet(const UniValue& params, bool fHelp)
 {
+
     if (fHelp || params.size() != 1)
         throw runtime_error(
             "dumpwallet \"filename\"\n"
             "\nDumps all wallet keys in a human-readable format.\n"
             "\nArguments:\n"
             "1. \"filename\"    (string, required) The filename\n"
-            "\nExamples:\n" +
-            HelpExampleCli("dumpwallet", "\"test\"") + HelpExampleRpc("dumpwallet", "\"test\""));
+            "\nExamples:\n"
+            + HelpExampleCli("dumpwallet", "\"test\"")
+            + HelpExampleRpc("dumpwallet", "\"test\"")
+        );
 
     LOCK2(cs_main, pwalletMain->cs_wallet);
 
@@ -418,49 +417,48 @@ UniValue dumpwallet(const UniValue& params, bool fHelp)
     std::sort(vKeyBirth.begin(), vKeyBirth.end());
 
     // produce output
-    file << strprintf("# Wallet dump created by Blocknode %s (%s)\n", CLIENT_BUILD, CLIENT_DATE);
+    file << strprintf("# Wallet dump created by Dash Core %s (%s)\n", CLIENT_BUILD, CLIENT_DATE);
     file << strprintf("# * Created on %s\n", EncodeDumpTime(GetTime()));
     file << strprintf("# * Best block at time of backup was %i (%s),\n", chainActive.Height(), chainActive.Tip()->GetBlockHash().ToString());
     file << strprintf("#   mined on %s\n", EncodeDumpTime(chainActive.Tip()->GetBlockTime()));
     file << "\n";
 
     // add the base58check encoded extended master if the wallet uses HD
-     CKeyID masterKeyID = pwalletMain->GetHDChain().masterKeyID;
-     if (!masterKeyID.IsNull())
-     {
-         CKey key;
-         if (pwalletMain->GetKey(masterKeyID, key))
-         {
-             CExtKey masterKey;
-             masterKey.SetMaster(key.begin(), key.size());
-
-             CBitcoinExtKey b58extkey;
-             b58extkey.SetKey(masterKey);
-
-             file << "# extended private masterkey: " << b58extkey.ToString() << "\n\n";
-         }
+    CHDChain hdChainCurrent;
+    if (pwalletMain->GetHDChain(hdChainCurrent))
+    {
+        std::vector<unsigned char> vchSeed = hdChainCurrent.GetSeed();
+        if (!pwalletMain->GetDecryptedHDChainSeed(vchSeed))
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Cannot decrypt HD seed");
+        CExtKey masterKey;
+        masterKey.SetMaster(&vchSeed[0], vchSeed.size());
+        file << "# HD seed: " << HexStr(vchSeed) << "\n\n";
+        CBitcoinExtKey b58extkey;
+        b58extkey.SetKey(masterKey);
+        file << "# extended private masterkey: " << b58extkey.ToString() << "\n\n";
+        CExtPubKey masterPubkey;
+        masterPubkey = masterKey.Neuter();
+        CBitcoinExtPubKey b58extpubkey;
+        b58extpubkey.SetKey(masterPubkey);
+        file << "# extended public masterkey: " << b58extpubkey.ToString() << "\n\n";
     }
 
-     for (std::vector<std::pair<int64_t, CKeyID> >::const_iterator it = vKeyBirth.begin(); it != vKeyBirth.end(); it++) {
-         const CKeyID &keyid = it->second;
-         std::string strTime = EncodeDumpTime(it->first);
-         std::string strAddr = CBitcoinAddress(keyid).ToString();
-         CKey key;
-         if (pwalletMain->GetKey(keyid, key)) {
-             file << strprintf("%s %s ", CBitcoinSecret(key).ToString(), strTime);
-             if (pwalletMain->mapAddressBook.count(keyid)) {
-                 file << strprintf("label=%s", EncodeDumpString(pwalletMain->mapAddressBook[keyid].name));
-             } else if (keyid == masterKeyID) {
-                 file << "hdmaster=1";
-             } else if (setKeyPool.count(keyid)) {
-                 file << "reserve=1";
-             } else if (pwalletMain->mapKeyMetadata[keyid].extkeyMetadata.GetKeyPath() == "m") {
-                 file << "inactivehdmaster=1";
-             } else {
-                 file << "change=1";
-             }
-             file << strprintf(" # addr=%s%s\n", strAddr, (pwalletMain->mapKeyMetadata[keyid].extkeyMetadata.IsNull() ? "" : " hdkeypath="+pwalletMain->mapKeyMetadata[keyid].extkeyMetadata.GetKeyPath()));
-         }
+    for (std::vector<std::pair<int64_t, CKeyID> >::const_iterator it = vKeyBirth.begin(); it != vKeyBirth.end(); it++) {
+        const CKeyID &keyid = it->second;
+        std::string strTime = EncodeDumpTime(it->first);
+        std::string strAddr = CBitcoinAddress(keyid).ToString();
+        CKey key;
+        if (pwalletMain->GetKey(keyid, key)) {
+            file << strprintf("%s %s ", CBitcoinSecret(key).ToString(), strTime);
+            if (pwalletMain->mapAddressBook.count(keyid)) {
+                file << strprintf("label=%s", EncodeDumpString(pwalletMain->mapAddressBook[keyid].name));
+            } else if (setKeyPool.count(keyid)) {
+                file << "reserve=1";
+            } else {
+                file << "change=1";
+            }
+            file << strprintf(" # addr=%s%s\n", strAddr, (pwalletMain->mapHdPubKeys.count(keyid) ? " hdkeypath="+pwalletMain->mapHdPubKeys[keyid].GetKeyPath() : ""));
+        }
     }
     file << "\n";
     file << "# End of dump\n";
