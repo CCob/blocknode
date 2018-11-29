@@ -58,14 +58,15 @@ before_script:
 script:
 - export TRAVIS_COMMIT_LOG=`git log --format=fuller -1`
 - if [ -n "$USE_SHELL" ]; then export CONFIG_SHELL="$USE_SHELL"; fi
-- OUTDIR=$BASE_OUTDIR/$TRAVIS_PULL_REQUEST/$TRAVIS_JOB_NUMBER-$HOST
-- BITCOIN_CONFIG_ALL="--disable-dependency-tracking --prefix=/build/depends/$HOST --bindir=$OUTDIR/bin --libdir=$OUTDIR/lib"
+- OUTDIR=$BASE_OUTDIR/$HOST
+- BITCOIN_CONFIG_ALL="--disable-dependency-tracking --prefix=/build/depends/$HOST --bindir=$OUTDIR --libdir=$OUTDIR"
 - depends/$HOST/native/bin/ccache --max-size=$CCACHE_SIZE
 - test -n "$USE_SHELL" && eval '"$USE_SHELL" -c "./autogen.sh"' || ./autogen.sh
 - docker exec $DOCKER_ID ./configure --cache-file=config.cache $BITCOIN_CONFIG_ALL $BITCOIN_CONFIG
 - docker exec $DOCKER_ID make distdir PACKAGE=bitcoin VERSION=$HOST
 - docker exec $DOCKER_ID bash -c "cd bitcoin-$HOST; ./configure --cache-file=../config.cache $BITCOIN_CONFIG_ALL $BITCOIN_CONFIG"
-- docker exec $DOCKER_ID make $MAKEJOBS $GOAL
+- docker exec $DOCKER_ID make $MAKEJOBS install
+- tar -zcvf $HOST.tar.gz $OUTDIR
 - export LD_LIBRARY_PATH=$TRAVIS_BUILD_DIR/depends/$HOST/lib
 - if [ "$RUN_TESTS" = "true" ]; then travis_wait 30 make $MAKEJOBS check VERBOSE=1;
   fi
@@ -77,17 +78,14 @@ after_script:
 deploy:
   provider: releases
   skip_cleanup: true
+  file_glob: true
   prerelease: true
   name: $TRAVIS_BRANCH 
   target_commitish: $TRAVIS_COMMIT
   overwrite: true  
   api_key:
     secure: B+KCKtU9vSQcNbZPgCewM43ABvQK/VcrYGasuzyF3hKxlSU68iR0Dw4Q+ScDCtXJw9eQ9C/yXBHwzaee21ucarQdQq6u8OhLYnmWmGy0xb0lEvDoVuBjpfTgMfvy3ZaxLrS7tYGFpDpmhD9802D3SChWy2Y0MUHsBbos8cfFLHzBkTBjlb07tTYaUZFbduIUKgvTQv5wczGDLpMqp/uK92RRErJHehvpJjRnzIGpRiPs9+1ziSk9rLuZweejnNUtQ6HpW6RQYDXQo8fHk1jd6Y9I5a+ajrQwNbsFUAwyhAnl1FS4avX49T5hzAt/EH9X0pT6pM97CW/D4K6nurH2tnUyHde79lzmaanyyhfEvt6Lycj3Angjk+od8rJCuDGsIeF4GsD+nH4G54WuqiaSRhGGG7t0qWqQN6HsGJtPPx7697sC3vAE5UpQ8v/YeDirAjCo0nvgvwZvdXPYkKYCRqPVmXbppffIiwDXgrnBz1sGjTGbC5YCIeIczAfnwfPspc5GYsQN7rZJEnSfGlcT9iscqi6rLlXDRgsl7Ny8eHa+d7dOY9QYC9xTZFILlfSGgFGjMej25uc9DKsiWs3j08vXTFKLoVzlOCbmcSS1teb8XnnYDB/c2kz1PZUTF9eLdbpDd1Of2iwth+fg8DoMEQU0KkuVLXimFzD+sa1yuHc=
-  file: 
-    - src/blocknode-cli
-    - src/blocknoded
-    - src/blocknode-tx
-    - src/qt/blocknode-qt
+  file: "*.tar.gz"
   on:
     repo: CCob/blocknode
     all_branches: true
