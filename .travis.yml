@@ -79,7 +79,7 @@ deploy:
   provider: releases
   skip_cleanup: true
   file_glob: true
-  prerelease: true
+  draft: true
   name: $TRAVIS_BRANCH 
   target_commitish: $TRAVIS_COMMIT
   overwrite: true  
