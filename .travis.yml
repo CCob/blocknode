@@ -66,7 +66,7 @@ script:
 - docker exec $DOCKER_ID make distdir PACKAGE=bitcoin VERSION=$HOST
 - docker exec $DOCKER_ID bash -c "cd bitcoin-$HOST; ./configure --cache-file=../config.cache $BITCOIN_CONFIG_ALL $BITCOIN_CONFIG"
 - docker exec $DOCKER_ID make $MAKEJOBS install
-- tar -zcvf $HOST.tar.gz $OUTDIR
+- docker exec $DOCKER_ID tar -zcvf $HOST.tar.gz $OUTDIR
 - export LD_LIBRARY_PATH=$TRAVIS_BUILD_DIR/depends/$HOST/lib
 - if [ "$RUN_TESTS" = "true" ]; then travis_wait 30 make $MAKEJOBS check VERBOSE=1;
   fi
