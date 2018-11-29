@@ -17,6 +17,9 @@ addons:
 cache:
   directories:
   - depends/built
+  - depends/x86_64-pc-linux-gnu
+  - depends/x86_64-w64-mingw32
+  - depends/i686-w64-mingw32
   - depends/sdk-sources
   - "$HOME/.ccache"
 env:
